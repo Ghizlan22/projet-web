@@ -1,0 +1,62 @@
+document.addEventListener("DOMContentLoaded", () => {
+    const fileInput = document.getElementById("file-input");
+    const uploadBtn = document.getElementById("upload-btn");
+    const summarizeBtn = document.getElementById("summarize-btn");
+    const qaBtn = document.getElementById("qa-btn");
+    const outputDiv = document.getElementById("output");
+
+    let uploadedFile = null;  // Pour stocker le fichier sélectionné
+
+    // 📤 1. Gestion du fichier sélectionné
+    fileInput.addEventListener("change", (event) => {
+        uploadedFile = event.target.files[0];
+        if (uploadedFile) {
+            outputDiv.innerHTML = `<p>📂 Fichier sélectionné : <strong>${uploadedFile.name}</strong></p>`;
+        }
+    });
+
+    // 🚀 2. Fonction d'envoi du fichier à l'API
+    async function uploadFile(endpoint) {
+        if (!uploadedFile) {
+            outputDiv.innerHTML = "<p>⚠️ Aucun fichier sélectionné.</p>";
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", uploadedFile);
+
+        try {
+            outputDiv.innerHTML = "<p>⏳ Traitement en cours...</p>";
+
+            const response = await fetch(`http://127.0.0.1:8000/${endpoint}`, {
+                method: "POST",
+                body: formData
+            });
+
+            const data = await response.json();
+            
+            if (data.error) {
+                outputDiv.innerHTML = `<p>❌ Erreur : ${data.error}</p>`;
+            } else {
+                outputDiv.innerHTML = `
+                    <h3>📑 Résumé du document :</h3>
+                    <div class="summary-box">
+                        <p>${data.summary.replace(/\n/g, "<br>")}</p>
+                    </div>
+                `;
+            }
+        } catch (error) {
+            outputDiv.innerHTML = `<p>❌ Erreur : ${error.message}</p>`;
+        }
+    }
+
+    // 📑 3. Bouton "Résumé" → Résumer texte / interpréter image
+    summarizeBtn.addEventListener("click", () => {
+        uploadFile("resume"); // Appelle l'API sur l'endpoint /resume
+    });
+
+    // 💡 4. Bouton "Question-Réponse" → Pose une question
+    qaBtn.addEventListener("click", () => {
+        uploadFile("qa"); // Appelle l'API sur l'endpoint /qa
+    });
+});
