@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analyse IA de Documents & Images</title>
+    <link rel="stylesheet" href="prj.css">
+</head>
+<body>
+    <header>
+        <h1>Analyse IA de Documents & Images</h1>
+    </header>
+    
+    <main>
+        <section id="upload-section">
+            <h2>Uploader un document ou une image</h2>
+            <div class="file-upload-container">
+                <input type="file" id="file-input">
+                <button id="upload-btn">📤 Envoyer</button>
+            </div>
+        </section>
+        
+        <section id="options">
+            <button id="summarize-btn">📑 Résumé</button>
+            <button id="qa-btn">💡 Question-Réponse</button>
+        </section>
+        
+        <section id="results">
+            <h2>📝 Résultat</h2>
+            <div id="output"></div>
+        </section>
+    </main>
+    
+    <script src="prj.js"></script>
+</body>
+</html>
