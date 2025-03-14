@@ -1,0 +1,92 @@
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
+from transformers import pipeline
+import fitz  # PyMuPDF
+import os
+
+app = FastAPI()
+
+# Activer CORS
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Charger le modèle de résumé IA
+try:
+    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    print("✅ Modèle chargé avec succès !")
+except Exception as e:
+    print("❌ Erreur lors du chargement du modèle :", e)
+
+# Fonction pour extraire le texte proprement avec PyMuPDF
+def extract_text_from_pdf(pdf_path):
+    """Extrait proprement le texte d'un PDF page par page."""
+    doc = fitz.open(pdf_path)
+    text = "\n".join(page.get_text("text") for page in doc)
+    return text.strip()
+
+# Fonction pour découper un texte sans couper les phrases
+def chunk_text(text, max_tokens=4000):
+    """Découpe le texte sans couper les phrases."""
+    chunks = []
+    current_chunk = []
+    current_length = 0
+
+    for sentence in text.split(". "):  # Découper en phrases
+        sentence_length = len(sentence) + 2  # +2 pour ". "
+        if current_length + sentence_length > max_tokens:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = []
+            current_length = 0
+        current_chunk.append(sentence)
+        current_length += sentence_length
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    return chunks
+
+@app.post("/resume")
+async def summarize_file(file: UploadFile = File(...)):
+    try:
+        print(f"📂 Fichier reçu : {file.filename}, Type: {file.content_type}")
+
+        # Vérifier si c'est bien un PDF
+        if file.content_type != "application/pdf":
+            return JSONResponse(content={"error": "Le fichier n'est pas un PDF."}, status_code=400)
+
+        # 📥 Lire et enregistrer temporairement le fichier
+        temp_path = "temp.pdf"
+        with open(temp_path, "wb") as f:
+            f.write(await file.read())
+
+        # 📝 Extraire le texte proprement
+        texte = extract_text_from_pdf(temp_path)
+        os.remove(temp_path)  # Nettoyer après extraction
+
+        if not texte:
+            return JSONResponse(content={"filename": file.filename, "summary": "Impossible d'extraire le texte du PDF."})
+
+        # 📌 Découper proprement le texte en parties compatibles avec le modèle
+        chunks = chunk_text(texte)
+        summaries = []
+
+        for chunk in chunks:
+            try:
+                summary = summarizer(chunk, max_length=200, min_length=50, do_sample=False)[0]["summary_text"]
+                summaries.append(summary)
+            except Exception as e:
+                print(f"⚠️ Erreur lors du résumé d'un morceau : {e}")
+        
+        # 📝 Assembler les résumés en un seul texte
+        resume = " ".join(summaries) if summaries else "Aucun résumé généré."
+
+        return JSONResponse(content={"filename": file.filename, "summary": resume})
+
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
