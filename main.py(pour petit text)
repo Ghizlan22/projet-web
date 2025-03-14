@@ -1,0 +1,70 @@
+from fastapi import FastAPI, File, UploadFile
+from fastapi.responses import JSONResponse
+from pdfminer.high_level import extract_text
+from transformers import pipeline
+import os
+
+app = FastAPI()
+
+# Activer CORS pour autoriser ton interface web
+from fastapi.middleware.cors import CORSMiddleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
+
+# 🔥 Charger un modèle de résumé IA de Hugging Face
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+try:
+    summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+    print("✅ Modèle chargé avec succès !")
+except Exception as e:
+    print("❌ Erreur lors du chargement du modèle :", e)
+@app.post("/resume")
+async def summarize_file(file: UploadFile = File(...)):
+    try:
+        print(f"📂 Fichier reçu : {file.filename}, Type: {file.content_type}")
+        # Vérifier si c'est bien un PDF
+        if file.content_type != "application/pdf":
+            return JSONResponse(content={"error": "Le fichier n'est pas un PDF."}, status_code=400)
+
+        # 📥 Lire le fichier et extraire le texte
+        content = await file.read()
+        temp_path = "temp.pdf"
+        with open(temp_path, "wb") as f:
+            f.write(content)
+
+        texte = extract_text(temp_path).strip()
+        os.remove(temp_path)  # Nettoyage après extraction
+
+        if not texte:
+            return JSONResponse(content={"filename": file.filename, "summary": "Impossible d'extraire le texte du PDF."})
+        
+        """
+        # 📑 Générer un résumé IA
+        max_length = 200  # Ajuste selon la taille du texte
+        min_length = 50
+        resume = summarizer(texte, max_length=max_length, min_length=min_length, do_sample=False)[0]["summary_text"]
+        """
+        def chunk_text(text, max_tokens=1024):
+            words = text.split()  
+            for i in range(0, len(words), max_tokens):
+                yield " ".join(words[i:i + max_tokens])
+
+        # Découper le texte et résumer chaque partie
+        summaries = []
+        for chunk in chunk_text(texte, max_tokens=800):  # 800 pour éviter de dépasser 1024 avec les tokens générés
+            summary = summarizer(chunk, max_length=200, min_length=50, do_sample=False)[0]["summary_text"]
+            summaries.append(summary)
+
+        # Joindre les résumés
+        resume = " ".join(summaries)
+
+
+        return JSONResponse(content={"filename": file.filename, "summary": resume})
+
+    except Exception as e:
+        return JSONResponse(content={"error": str(e)}, status_code=500)
