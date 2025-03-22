@@ -1,0 +1,160 @@
+from fastapi import FastAPI, File, UploadFile, Form
+from fastapi.responses import JSONResponse
+from transformers import pipeline
+import tempfile
+import os
+import fitz  # PyMuPDF pour PDF
+import docx
+import pandas as pd
+import pptx
+from fastapi.middleware.cors import CORSMiddleware
+from langdetect import detect  # Détection de langue
+
+app = FastAPI()
+
+# Activer CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"],  
+)
+
+# Modèles de traduction (correction avec des clés correctes)
+translation_models = {
+    "en": "Helsinki-NLP/opus-mt-fr-en",
+    "fr": "Helsinki-NLP/opus-mt-en-fr",
+    "de": "Helsinki-NLP/opus-mt-de-en",
+    "es": "Helsinki-NLP/opus-mt-es-en",
+    "it": "Helsinki-NLP/opus-mt-it-en",
+    "zh": "Helsinki-NLP/opus-mt-zh-en",
+    "de": "Helsinki-NLP/opus-mt-fr-de",
+    "ar": "Helsinki-NLP/opus-mt-fr-ar",
+    "zh": "Helsinki-NLP/opus-mt-fr-zh",
+    "it": "Helsinki-NLP/opus-mt-en-it",
+    
+}
+def extract_text_from_pdf(file_path):
+    text = ""
+    with fitz.open(file_path) as doc:
+        for page in doc:
+            text += page.get_text("text") + "\n"
+    return text
+
+def extract_text_from_docx(file_path):
+    doc = docx.Document(file_path)
+    return "\n".join([p.text for p in doc.paragraphs])
+
+def extract_text_from_pptx(file_path):
+    presentation = pptx.Presentation(file_path)
+    text = []
+    for slide in presentation.slides:
+        for shape in slide.shapes:
+            if hasattr(shape, "text"):
+                text.append(shape.text)
+    return "\n".join(text)
+
+def extract_text_from_excel(file_path):
+    df = pd.read_excel(file_path, engine="openpyxl")
+    return df.to_string(index=False)
+
+def chunk_text(text, max_length=512):
+    words = text.split()
+    chunks = []
+    current_chunk = []
+
+    for word in words:
+        if len(" ".join(current_chunk) + " " + word) <= max_length:
+            current_chunk.append(word)
+        else:
+            chunks.append(" ".join(current_chunk))
+            current_chunk = [word]
+
+    if current_chunk:
+        chunks.append(" ".join(current_chunk))
+
+    return chunks
+
+@app.post("/translate")
+async def translate_document(file: UploadFile = File(...), language: str = Form(...)):
+    try:
+        if language not in translation_models:
+            return JSONResponse({"error": "Langue non supportée"}, status_code=400)
+
+        translator = pipeline("translation", model=translation_models[language])
+
+        suffix = file.filename.split(".")[-1].lower()
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}")
+        temp_file.write(await file.read())
+        temp_file.close()
+
+        text = ""
+        if suffix == "pdf":
+            text = extract_text_from_pdf(temp_file.name)
+        elif suffix == "docx":
+            text = extract_text_from_docx(temp_file.name)
+        elif suffix == "pptx":
+            text = extract_text_from_pptx(temp_file.name)
+        elif suffix in ["xls", "xlsx"]:
+            text = extract_text_from_excel(temp_file.name)
+        else:
+            return JSONResponse({"error": "Format de fichier non supporté"}, status_code=400)
+
+        os.remove(temp_file.name)
+
+        if not text.strip():
+            return JSONResponse({"error": "Aucun texte détecté"}, status_code=400)
+
+        detected_lang = detect(text)
+        print(f"Langue détectée : {detected_lang} | Langue cible : {language}")
+        # Vérifier si la langue détectée est différente de la langue cible
+        if detected_lang == language:
+            return JSONResponse({"translation": text, "note": "Le texte est déjà dans la langue sélectionnée."})
+
+        # Vérifier si une traduction entre detected_lang et language est possible
+        if detected_lang in translation_models and language in translation_models:
+            if detected_lang == "fr" and language == "en":
+                model_name = "Helsinki-NLP/opus-mt-fr-en"
+            elif detected_lang == "fr" and language == "es":
+                model_name = "Helsinki-NLP/opus-mt-fr-es"
+            elif detected_lang == "fr" and language == "de":
+                model_name = "Helsinki-NLP/opus-mt-fr-de" 
+            
+            elif detected_lang == "fr" and language == "it":
+                 translator_fr_en = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
+                 translator_en_it = pipeline("translation", model="Helsinki-NLP/opus-mt-en-it")
+            elif detected_lang == "fr" and language == "zh":
+                model_name = "Helsinki-NLP/opus-mt-fr-zh"
+            elif detected_lang == "fr" and language == "ar":
+                model_name = "Helsinki-NLP/opus-mt-fr-ar"  
+            
+            
+            elif detected_lang == "en" and language == "fr":
+                model_name = "Helsinki-NLP/opus-mt-en-fr"
+            elif detected_lang == "de" and language == "en":
+                model_name = "Helsinki-NLP/opus-mt-de-en"
+            elif detected_lang == "es" and language == "en":
+                model_name = "Helsinki-NLP/opus-mt-es-en"
+            elif detected_lang == "it" and language == "en":
+                model_name = "Helsinki-NLP/opus-mt-it-en"
+            elif detected_lang == "zh" and language == "en":
+                model_name = "Helsinki-NLP/opus-mt-zh-en"
+            else:
+                return JSONResponse({"error": f"Aucun modèle trouvé pour la traduction {detected_lang} → {language}"}, status_code=400)
+        else:
+            return JSONResponse({"error": f"Aucun modèle trouvé pour la traduction {detected_lang} → {language}"}, status_code=400)
+
+        # Charger le bon modèle
+        translator = pipeline("translation", model=model_name)
+
+
+        # Découper et traduire le texte
+
+        translated_chunks = [translator(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
+        translated_text = " ".join(translated_chunks)
+
+        return JSONResponse({"translation": translated_text})
+
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
