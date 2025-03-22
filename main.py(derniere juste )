@@ -21,20 +21,22 @@ app.add_middleware(
     allow_headers=["*"],  
 )
 
-# Modèles de traduction (correction avec des clés correctes)
+# Modèles de traduction corrigés avec des clés source_lang-target_lang
 translation_models = {
-    "en": "Helsinki-NLP/opus-mt-fr-en",
-    "fr": "Helsinki-NLP/opus-mt-en-fr",
-    "de": "Helsinki-NLP/opus-mt-de-en",
-    "es": "Helsinki-NLP/opus-mt-es-en",
-    "it": "Helsinki-NLP/opus-mt-it-en",
-    "zh": "Helsinki-NLP/opus-mt-zh-en",
-    "de": "Helsinki-NLP/opus-mt-fr-de",
-    "ar": "Helsinki-NLP/opus-mt-fr-ar",
-    "zh": "Helsinki-NLP/opus-mt-fr-zh",
-    "it": "Helsinki-NLP/opus-mt-en-it",
-    
+    "fr-en": "Helsinki-NLP/opus-mt-fr-en",
+    "en-fr": "Helsinki-NLP/opus-mt-en-fr",
+    "fr-de": "Helsinki-NLP/opus-mt-fr-de",
+    "fr-es": "Helsinki-NLP/opus-mt-fr-es",
+    "fr-ar": "Helsinki-NLP/opus-mt-fr-ar",
+    "de-en": "Helsinki-NLP/opus-mt-de-en",
+    "es-en": "Helsinki-NLP/opus-mt-es-en",
+    "it-en": "Helsinki-NLP/opus-mt-it-en",
+    "zh-en": "Helsinki-NLP/opus-mt-zh-en",
+    "en-it": "Helsinki-NLP/opus-mt-en-it",
+    "en-zh": "Helsinki-NLP/opus-mt-zh-en",
+
 }
+
 def extract_text_from_pdf(file_path):
     text = ""
     with fitz.open(file_path) as doc:
@@ -79,11 +81,6 @@ def chunk_text(text, max_length=512):
 @app.post("/translate")
 async def translate_document(file: UploadFile = File(...), language: str = Form(...)):
     try:
-        if language not in translation_models:
-            return JSONResponse({"error": "Langue non supportée"}, status_code=400)
-
-        translator = pipeline("translation", model=translation_models[language])
-
         suffix = file.filename.split(".")[-1].lower()
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f".{suffix}")
         temp_file.write(await file.read())
@@ -108,53 +105,36 @@ async def translate_document(file: UploadFile = File(...), language: str = Form(
 
         detected_lang = detect(text)
         print(f"Langue détectée : {detected_lang} | Langue cible : {language}")
-        # Vérifier si la langue détectée est différente de la langue cible
+
         if detected_lang == language:
             return JSONResponse({"translation": text, "note": "Le texte est déjà dans la langue sélectionnée."})
 
-        # Vérifier si une traduction entre detected_lang et language est possible
-        if detected_lang in translation_models and language in translation_models:
-            if detected_lang == "fr" and language == "en":
-                model_name = "Helsinki-NLP/opus-mt-fr-en"
-            elif detected_lang == "fr" and language == "es":
-                model_name = "Helsinki-NLP/opus-mt-fr-es"
-            elif detected_lang == "fr" and language == "de":
-                model_name = "Helsinki-NLP/opus-mt-fr-de" 
-            
-            elif detected_lang == "fr" and language == "it":
-                 translator_fr_en = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
-                 translator_en_it = pipeline("translation", model="Helsinki-NLP/opus-mt-en-it")
-            elif detected_lang == "fr" and language == "zh":
-                model_name = "Helsinki-NLP/opus-mt-fr-zh"
-            elif detected_lang == "fr" and language == "ar":
-                model_name = "Helsinki-NLP/opus-mt-fr-ar"  
-            
-            
-            elif detected_lang == "en" and language == "fr":
-                model_name = "Helsinki-NLP/opus-mt-en-fr"
-            elif detected_lang == "de" and language == "en":
-                model_name = "Helsinki-NLP/opus-mt-de-en"
-            elif detected_lang == "es" and language == "en":
-                model_name = "Helsinki-NLP/opus-mt-es-en"
-            elif detected_lang == "it" and language == "en":
-                model_name = "Helsinki-NLP/opus-mt-it-en"
-            elif detected_lang == "zh" and language == "en":
-                model_name = "Helsinki-NLP/opus-mt-zh-en"
-            else:
-                return JSONResponse({"error": f"Aucun modèle trouvé pour la traduction {detected_lang} → {language}"}, status_code=400)
-        else:
-            return JSONResponse({"error": f"Aucun modèle trouvé pour la traduction {detected_lang} → {language}"}, status_code=400)
+        # Vérifier si une traduction directe existe
+        model_key = f"{detected_lang}-{language}"
+        if model_key in translation_models:
+            model_name = translation_models[model_key]
+            translator = pipeline("translation", model=model_name)
+            translated_chunks = [translator(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
+            translated_text = " ".join(translated_chunks)
+            return JSONResponse({"translation": translated_text})
+        
+        # Cas spécial : Traduction Français → Italien via Anglais
+        elif detected_lang == "fr" and language == "it":
+            translator_fr_en = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
+            translator_en_it = pipeline("translation", model="Helsinki-NLP/opus-mt-en-it")
+        
 
-        # Charger le bon modèle
-        translator = pipeline("translation", model=model_name)
+        
 
+            translated_to_en = [translator_fr_en(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
+            intermediate_text = " ".join(translated_to_en)
 
-        # Découper et traduire le texte
+            translated_to_it = [translator_en_it(chunk)[0]["translation_text"] for chunk in chunk_text(intermediate_text)]
+            translated_text = " ".join(translated_to_it)
 
-        translated_chunks = [translator(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
-        translated_text = " ".join(translated_chunks)
+            return JSONResponse({"translation": translated_text})
 
-        return JSONResponse({"translation": translated_text})
+        return JSONResponse({"error": f"Aucun modèle trouvé pour la traduction {detected_lang} → {language}"}, status_code=400)
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
