@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from transformers import pipeline
 import tempfile
 import os
-import fitz  # PyMuPDF pour PDF
+import fitz  # PyMuPDF
 import docx
 import pandas as pd
 import pptx
@@ -12,31 +12,37 @@ from langdetect import detect  # Détection de langue
 
 app = FastAPI()
 
-# Activer CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"],  
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Modèles de traduction corrigés avec des clés source_lang-target_lang
+# Modèles de traduction (ajout de plus de langues)
 translation_models = {
     "fr-en": "Helsinki-NLP/opus-mt-fr-en",
     "en-fr": "Helsinki-NLP/opus-mt-en-fr",
     "fr-de": "Helsinki-NLP/opus-mt-fr-de",
     "fr-es": "Helsinki-NLP/opus-mt-fr-es",
-    "fr-ar": "Helsinki-NLP/opus-mt-fr-ar",
     "de-en": "Helsinki-NLP/opus-mt-de-en",
     "es-en": "Helsinki-NLP/opus-mt-es-en",
     "it-en": "Helsinki-NLP/opus-mt-it-en",
     "zh-en": "Helsinki-NLP/opus-mt-zh-en",
     "en-it": "Helsinki-NLP/opus-mt-en-it",
-    "en-zh": "Helsinki-NLP/opus-mt-zh-en",
+    "en-zh": "Helsinki-NLP/opus-mt-en-zh",
+    "de-fr": "Helsinki-NLP/opus-mt-de-fr",
+    "es-fr": "Helsinki-NLP/opus-mt-es-fr",
+    "it-fr": "Helsinki-NLP/opus-mt-it-fr",
+    "zh-fr": "Helsinki-NLP/opus-mt-zh-fr",
+    "en-es": "Helsinki-NLP/opus-mt-en-es",
+    "fr-ar": "Helsinki-NLP/opus-mt-fr-ar",
+    "en-de": "Helsinki-NLP/opus-mt-en-de",
+
+
 
 }
-
 def extract_text_from_pdf(file_path):
     text = ""
     with fitz.open(file_path) as doc:
@@ -61,6 +67,7 @@ def extract_text_from_excel(file_path):
     df = pd.read_excel(file_path, engine="openpyxl")
     return df.to_string(index=False)
 
+# Fonction pour diviser le texte en morceaux
 def chunk_text(text, max_length=512):
     words = text.split()
     chunks = []
@@ -78,6 +85,32 @@ def chunk_text(text, max_length=512):
 
     return chunks
 
+# Fonction pour traduire le texte
+def translate_text(text, source_lang, target_lang):
+    model_key = f"{source_lang}-{target_lang}"
+    
+    if model_key in translation_models:
+        model_name = translation_models[model_key]
+        translator = pipeline("translation", model=model_name)
+        translated_chunks = [translator(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
+        return " ".join(translated_chunks)
+
+    # Si pas de traduction directe, utiliser l'anglais comme pivot (intermédiaire)
+    model_to_en = f"{source_lang}-en"
+    model_from_en = f"en-{target_lang}"
+
+    if model_to_en in translation_models and model_from_en in translation_models:
+        translator_to_en = pipeline("translation", model=translation_models[model_to_en])
+        translator_from_en = pipeline("translation", model=translation_models[model_from_en])
+
+        intermediate_texts = [translator_to_en(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
+        intermediate_text = " ".join(intermediate_texts)
+
+        final_texts = [translator_from_en(chunk)[0]["translation_text"] for chunk in chunk_text(intermediate_text)]
+        return " ".join(final_texts)
+
+    return None  # Pas de modèle disponible
+
 @app.post("/translate")
 async def translate_document(file: UploadFile = File(...), language: str = Form(...)):
     try:
@@ -86,7 +119,6 @@ async def translate_document(file: UploadFile = File(...), language: str = Form(
         temp_file.write(await file.read())
         temp_file.close()
 
-        text = ""
         if suffix == "pdf":
             text = extract_text_from_pdf(temp_file.name)
         elif suffix == "docx":
@@ -109,32 +141,13 @@ async def translate_document(file: UploadFile = File(...), language: str = Form(
         if detected_lang == language:
             return JSONResponse({"translation": text, "note": "Le texte est déjà dans la langue sélectionnée."})
 
-        # Vérifier si une traduction directe existe
-        model_key = f"{detected_lang}-{language}"
-        if model_key in translation_models:
-            model_name = translation_models[model_key]
-            translator = pipeline("translation", model=model_name)
-            translated_chunks = [translator(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
-            translated_text = " ".join(translated_chunks)
+        translated_text = translate_text(text, detected_lang, language)
+
+        if translated_text:
             return JSONResponse({"translation": translated_text})
-        
-        # Cas spécial : Traduction Français → Italien via Anglais
-        elif detected_lang == "fr" and language == "it":
-            translator_fr_en = pipeline("translation", model="Helsinki-NLP/opus-mt-fr-en")
-            translator_en_it = pipeline("translation", model="Helsinki-NLP/opus-mt-en-it")
-        
-
-        
-
-            translated_to_en = [translator_fr_en(chunk)[0]["translation_text"] for chunk in chunk_text(text)]
-            intermediate_text = " ".join(translated_to_en)
-
-            translated_to_it = [translator_en_it(chunk)[0]["translation_text"] for chunk in chunk_text(intermediate_text)]
-            translated_text = " ".join(translated_to_it)
-
-            return JSONResponse({"translation": translated_text})
-
-        return JSONResponse({"error": f"Aucun modèle trouvé pour la traduction {detected_lang} → {language}"}, status_code=400)
+        else:
+            return JSONResponse({"error": f"Aucun modèle trouvé pour la traduction {detected_lang} → {language}"}, status_code=400)
 
     except Exception as e:
         return JSONResponse({"error": str(e)}, status_code=500)
+
