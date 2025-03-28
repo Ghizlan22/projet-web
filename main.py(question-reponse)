@@ -1,0 +1,50 @@
+# Création de l'application FastAPI
+app = FastAPI()
+
+# 🔥 Ajout du middleware CORS pour autoriser le frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Autoriser toutes les origines (changer pour plus de sécurité en prod)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Clé API Hugging Face (remplace par ta vraie clé)
+HUGGING_FACE_API_KEY = "ton_token_huggingface"
+
+# Modèle LLM utilisé (exemple : Mistral 7B)
+MODEL_NAME = "mistralai/Mistral-7B-Instruct"
+
+# Fonction pour interroger l'API de Hugging Face
+def query_huggingface(question: str):
+    url = f"https://api-inference.huggingface.co/models/{MODEL_NAME}"
+    headers = {
+        "Authorization": f"Bearer {HUGGING_FACE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {"inputs": question, "parameters": {"max_new_tokens": 200, "temperature": 0.7}}
+
+    response = requests.post(url, headers=headers, json=payload)
+
+    if response.status_code == 200:
+        data = response.json()
+        if isinstance(data, list) and len(data) > 0 and "generated_text" in data[0]:
+            return data[0]["generated_text"]
+        else:
+            return "⚠️ Réponse inattendue du modèle."
+    else:
+        return f"🚨 Erreur API Hugging Face : {response.json()}"
+
+# Route API pour interroger le modèle IA
+@app.post("/ask")
+async def ask_ai(question: str = Form(...)):
+    if not question:
+        return JSONResponse({"error": "❌ Veuillez entrer une question."}, status_code=400)
+
+    try:
+        response_text = query_huggingface(question)
+    except Exception as e:
+        return JSONResponse({"error": f"❌ Erreur lors de l’appel à l’IA : {str(e)}"}, status_code=500)
+
+    return {"response": response_text}
