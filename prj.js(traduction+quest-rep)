@@ -1,0 +1,151 @@
+document.addEventListener("DOMContentLoaded", () => {
+    const fileInput = document.getElementById("fileInput");
+    const choixLangueBtn = document.getElementById("choix-langue");
+    const langOptions = document.getElementById("lang-options");
+    const translateBtn = document.getElementById("traduction");
+    const resultatDiv = document.getElementById("resultat");
+    const questionReponseBtn = document.getElementById("question-reponse");
+    const qaSection = document.getElementById("qa-section");
+    const questionInput = document.getElementById("questionInput");
+    const imageInput = document.getElementById("imageInput");
+    const envoyerQuestionBtn = document.getElementById("envoyer-question");
+    const reponseDiv = document.getElementById("reponse");
+
+    // Correspondance entre affichage et code langue
+    const languageMap = {
+         "Français": "fr",
+         "Anglais": "en",
+         "Allemand": "de",
+         "Espagnol": "es",
+         "Italien" : "it",
+         "Chinois" : "zh",
+         "Arabe"   : "ar"
+    };
+
+    let selectedLanguage = "";
+    let uploadedFile = null;
+
+    // Gestion de l'upload du fichier
+    fileInput.addEventListener("change", (event) => {
+        uploadedFile = event.target.files[0];
+        if (uploadedFile) {
+            resultatDiv.innerHTML = `<p>📂 Fichier sélectionné : <strong>${uploadedFile.name}</strong></p>`;
+        }
+    });
+
+    // Toggle du menu des langues avec animation
+    choixLangueBtn.addEventListener("click", () => {
+        langOptions.style.display = langOptions.style.display === "block" ? "none" : "block";
+        langOptions.classList.toggle("fade-in");
+    });
+    /*
+    // Sélection de la langue
+    document.querySelectorAll(".lang-btn").forEach(button => {
+        button.addEventListener("click", () => {
+            selectedLanguage = button.textContent.trim();
+            choixLangueBtn.innerHTML = `🌍 ${selectedLanguage}`;
+            langOptions.style.display = "none";
+        });
+    });
+    */
+    // Sélection de la langue
+    document.querySelectorAll(".lang-btn").forEach(button => {
+        button.addEventListener("click", () => {
+            //const selectedText = button.textContent.trim(); // Ex: "Anglais"
+            selectedLanguage = button.getAttribute("data-lang"); // Prend le bon code de langue
+            choixLangueBtn.innerHTML = `🌍 ${button.textContent.trim()}`;
+            langOptions.style.display = "none";
+            console.log("Langue sélectionnée :", selectedLanguage); // 🔥 Debug dans la console
+        });
+    });
+     
+    // Fonction pour envoyer le fichier et récupérer la traduction
+    async function uploadFileForTranslation() {
+        if (!uploadedFile) {
+            showMessage("⚠️ Aucun fichier sélectionné.", "error");
+            return;
+        }
+        if (!selectedLanguage) {
+            showMessage("⚠️ Veuillez choisir une langue.", "error");
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append("file", uploadedFile);
+        formData.append("language", selectedLanguage); // Changement ici
+        // 🔍 Affiche les données envoyées dans la console
+        console.log("Données envoyées :", [...formData.entries()]);
+
+        try {
+            showMessage("⏳ Traduction en cours...", "loading");
+            const response = await fetch("http://127.0.0.1:8000/translate", {
+                method: "POST",
+                body: formData
+            });
+            const data = await response.json();
+            console.log("Réponse de l'API :", data);
+
+
+            if (data.error) {
+                showMessage(`❌ Erreur : ${data.error}`, "error");
+            } else {
+                showMessage(`<h3>🌍 Traduction :</h3><p>${data.translation.replace(/\n/g, "<br>")}</p>`, "success");
+            }
+        } catch (error) {
+            showMessage(`❌ Erreur : ${error.message}`, "error");
+        }
+    }
+
+    // Bouton traduction
+    translateBtn.addEventListener("click", uploadFileForTranslation);
+
+    // Fonction pour afficher les messages avec style
+    function showMessage(message, type) {
+        resultatDiv.innerHTML = `<div class="message ${type}">${message}</div>`;
+    }
+    // 🧠 Activation de la section Question/Réponse
+    questionReponseBtn.addEventListener("click", () => {
+        qaSection.style.display = qaSection.style.display === "none" ? "block" : "none";
+    });
+
+    // 📤 Envoi de la question ou de l'image à l'IA
+    async function envoyerQuestion() {
+        const question = questionInput.value.trim();
+
+        if (!question && !uploadedFile) {
+            reponseDiv.innerHTML = `<div class="message error">⚠️ Veuillez entrer une question ou sélectionner une image.</div>`;
+            return;
+        }
+
+        const formData = new FormData();
+        if (uploadedFile) {
+            formData.append("file", uploadedFile);
+        }
+        if (question) {
+            formData.append("question", question);
+        }
+
+        try {
+            reponseDiv.innerHTML = `<div class="message loading">⏳ Analyse en cours...</div>`;
+            const response = await fetch("http://127.0.0.1:8000/ask", {
+                method: "POST",
+                body: formData
+            });
+            const data = await response.json();
+
+            if (data.error) {
+                reponseDiv.innerHTML = `<div class="message error">❌ Erreur : ${data.error}</div>`;
+            } else {
+                reponseDiv.innerHTML = `<h3>🧠 Réponse :</h3><p>${data.response.replace(/\n/g, "<br>")}</p>`;
+            }
+        } catch (error) {
+            reponseDiv.innerHTML = `<div class="message error">❌ Erreur : ${error.message}</div>`;
+        }
+    }
+     
+    // Rendre le champ de saisie actif si désactivé par erreur
+    questionInput.removeAttribute("disabled");
+    // Bouton envoyer question
+    envoyerQuestionBtn.addEventListener("click", envoyerQuestion);
+});
+
