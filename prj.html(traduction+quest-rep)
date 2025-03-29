@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traduction IA</title>
+    <link rel="stylesheet" href="prj.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <h2>📂 Uploader un document ou une image</h2>
+        <input type="file" id="fileInput" class="file-input">
+        
+        <button id="choix-langue" class="btn">🌍 Choix de langue</button>
+        
+        <div id="lang-options" class="lang-options">
+            <button class="lang-btn" data-lang="en">🇬🇧 Anglais</button>
+            <button class="lang-btn" data-lang="es">🇪🇸 Espagnol</button>
+            <button class="lang-btn" data-lang="de">🇩🇪 Allemand</button>
+            <button class="lang-btn" data-lang="it">🇮🇹 Italien</button>
+            <button class="lang-btn" data-lang="zh">🇨🇳 Chinois</button>
+            <button class="lang-btn" data-lang="fr">🇫🇷 Français</button>
+            <button class="lang-btn" data-lang="fr">ar arabe</button>
+
+        </div>
+        
+        <button class="btn" id="traduction">🌍 Traduction</button>
+        
+        <h3>📄 Résultat</h3>
+        <div id="resultat" class="resultat-box"></div>
+        <!-- Nouveau bouton Question/Réponse -->
+        <button class="btn" id="question-reponse">🧠 Question/Réponse</button>
+
+        <!-- Section pour poser des questions -->
+        <div id="qa-section" style="display: none;">
+            <h3>❓ Posez votre question</h3>
+            <input type="text" id="questionInput" class="file-input" placeholder="Tapez votre question ici..." autocomplete="off">
+            <input type="file" id="imageInput" accept="image/*" />
+            <button class="btn" id="envoyer-question">📤 Envoyer</button>
+        </div>
+
+        <h3>📄 Réponse</h3>
+        <div id="reponse" class="resultat-box"></div>
+    </div>
+    <script src="prj.js"></script>
+</body>
+</html>
